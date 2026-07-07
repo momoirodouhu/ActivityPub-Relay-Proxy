@@ -1,0 +1,14 @@
+{
+    "name": "ActivityPub-Relay-Proxy",
+    "image": "mcr.microsoft.com/devcontainers/go:1",
+    "features": {
+        "ghcr.io/devcontainers/features/github-cli:1": {}
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "golang.Go"
+            ]
+        }
+    }
+}

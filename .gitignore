@@ -1,0 +1,9 @@
+# Binaries
+/proxy
+/cmd/proxy/proxy
+
+# Environments
+.env
+
+# Go dependencies
+/vendor/
