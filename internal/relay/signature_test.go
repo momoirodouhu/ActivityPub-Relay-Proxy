@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -158,4 +160,43 @@ func TestGetPublicKey(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+
+	t.Run("cached in redis - PKCS1 format", func(t *testing.T) {
+		mRedis := testutil.NewMockRedis()
+		pubKeyPKCS1Pem, err := GetPublicKeyPKCS1Pem(privKey)
+		if err != nil {
+			t.Fatalf("failed to get PKCS1 public key pem: %v", err)
+		}
+		mRedis.PresetKV("cache:pubkey:"+keyID, pubKeyPKCS1Pem)
+		verifier := NewSignatureVerifier(mRedis)
+
+		pubKey, err := verifier.GetPublicKey(context.Background(), keyID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		rsaPub, ok := pubKey.(*rsa.PublicKey)
+		if !ok {
+			t.Fatal("expected rsa.PublicKey")
+		}
+		if rsaPub.N.Cmp(privKey.PublicKey.N) != 0 {
+			t.Error("modulus mismatch")
+		}
+	})
+}
+
+func GetPublicKeyPKCS1Pem(privKey *rsa.PrivateKey) (string, error) {
+	pubKeyBytes := x509.MarshalPKCS1PublicKey(&privKey.PublicKey)
+
+	block := &pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: pubKeyBytes,
+	}
+
+	var buf bytes.Buffer
+	if err := pem.Encode(&buf, block); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
 }

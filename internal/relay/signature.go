@@ -153,11 +153,17 @@ func parsePublicKeyPem(pemBytes []byte) (crypto.PublicKey, error) {
 	}
 
 	pubKey, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse PKIX public key: %w", err)
+	if err == nil {
+		return pubKey, nil
 	}
 
-	return pubKey, nil
+	// Fallback to PKCS#1 (traditional OpenSSL RSA public key format, e.g. "RSA PUBLIC KEY")
+	pubKeyPKCS1, errPKCS1 := x509.ParsePKCS1PublicKey(block.Bytes)
+	if errPKCS1 == nil {
+		return pubKeyPKCS1, nil
+	}
+
+	return nil, fmt.Errorf("failed to parse public key (PKIX: %v, PKCS1: %v)", err, errPKCS1)
 }
 
 // SignRequest signs the outgoing request using Cavage HTTP Signatures.
