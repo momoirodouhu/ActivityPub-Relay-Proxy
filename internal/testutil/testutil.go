@@ -252,3 +252,19 @@ func (m *MockRedis) SMembers(ctx context.Context, key string) *redis.StringSlice
 	cmd.SetVal(members)
 	return cmd
 }
+
+// SCard implements redis.Cmdable SCard method.
+func (m *MockRedis) SCard(ctx context.Context, key string) *redis.IntCmd {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cmd := redis.NewIntCmd(ctx)
+	set, ok := m.Sets[key]
+	if !ok {
+		cmd.SetVal(0)
+		return cmd
+	}
+
+	cmd.SetVal(int64(len(set)))
+	return cmd
+}

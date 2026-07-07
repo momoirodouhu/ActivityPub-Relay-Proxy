@@ -47,6 +47,13 @@ func New(cfg *config.Config, rdb redis.Cmdable, asynqClient QueueClient, private
 func (s *Server) Routes() chi.Router {
 	r := chi.NewRouter()
 
+	// Landing Page (Plain text description)
+	r.Get("/", s.handleIndex)
+
+	// NodeInfo endpoints
+	r.Get("/.well-known/nodeinfo", s.handleWellKnownNodeInfo)
+	r.Get("/nodeinfo/2.0", s.handleNodeInfo)
+
 	// WebFinger Actor discovery
 	r.Get("/.well-known/webfinger", s.handleWebFinger)
 

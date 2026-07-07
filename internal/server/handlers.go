@@ -388,3 +388,134 @@ func (s *Server) enqueueToInboxes(ctx context.Context, inboxes []string, activit
 	}
 	return nil
 }
+
+// NodeInfoLink represents a link in the well-known NodeInfo response.
+type NodeInfoLink struct {
+	Rel  string `json:"rel"`
+	Href string `json:"href"`
+}
+
+// NodeInfoWellKnown represents the schema for /.well-known/nodeinfo
+type NodeInfoWellKnown struct {
+	Links []NodeInfoLink `json:"links"`
+}
+
+// NodeInfoSoftware represents the software metadata in NodeInfo.
+type NodeInfoSoftware struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// NodeInfoServices represents the services metadata in NodeInfo.
+type NodeInfoServices struct {
+	Inbound  []string `json:"inbound"`
+	Outbound []string `json:"outbound"`
+}
+
+// NodeInfoUsers represents the user usage statistics in NodeInfo.
+type NodeInfoUsers struct {
+	Total          int `json:"total"`
+	ActiveHalfyear int `json:"activeHalfyear"`
+	ActiveMonth    int `json:"activeMonth"`
+}
+
+// NodeInfoUsage represents the usage stats in NodeInfo.
+type NodeInfoUsage struct {
+	Users         NodeInfoUsers `json:"users"`
+	LocalPosts    int           `json:"localPosts"`
+	LocalComments int           `json:"localComments"`
+}
+
+// NodeInfoMetadata represents custom metadata exposed by this relay proxy in NodeInfo.
+type NodeInfoMetadata struct {
+	ActorUsername    string   `json:"actor_username"`
+	DestinationURL   string   `json:"destination_url"`
+	SubscribersCount int64    `json:"subscribers_count"`
+	FilterKeywords   []string `json:"filter_keywords"`
+	FilterHashtags   []string `json:"filter_hashtags"`
+}
+
+// NodeInfoSchema represents the schema for /nodeinfo/2.0
+type NodeInfoSchema struct {
+	Version           string           `json:"version"`
+	Software          NodeInfoSoftware `json:"software"`
+	Protocols         []string         `json:"protocols"`
+	Services          NodeInfoServices `json:"services"`
+	OpenRegistrations bool             `json:"openRegistrations"`
+	Usage             NodeInfoUsage    `json:"usage"`
+	Metadata          NodeInfoMetadata `json:"metadata"`
+}
+
+// handleIndex serves a simple plain text description of the proxy relay.
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	subscribersCount, err := s.rdb.SCard(r.Context(), "relay:subscribers").Result()
+	if err != nil {
+		slog.Error("Failed to fetch subscriber count from Redis", "error", err)
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+
+	fmt.Fprintf(w, "ActivityPub Relay Proxy\n")
+	fmt.Fprintf(w, "========================\n\n")
+	fmt.Fprintf(w, "This service acts as an ActivityPub Relay Proxy for %s to control relay traffic and server load.\n\n", s.cfg.DestinationURL)
+	fmt.Fprintf(w, "Relay Details:\n")
+	fmt.Fprintf(w, "  - Relay Actor URI:      https://%s/users/%s\n", s.cfg.Domain, s.cfg.ActorUsername)
+	fmt.Fprintf(w, "  - Destination Instance: %s\n", s.cfg.DestinationURL)
+	fmt.Fprintf(w, "  - Active Subscribers:   %d\n\n", subscribersCount)
+
+}
+
+// handleWellKnownNodeInfo serves /.well-known/nodeinfo
+func (s *Server) handleWellKnownNodeInfo(w http.ResponseWriter, r *http.Request) {
+	resp := NodeInfoWellKnown{
+		Links: []NodeInfoLink{
+			{
+				Rel:  "http://nodeinfo.diaspora.eu/ns/schema/2.0",
+				Href: fmt.Sprintf("https://%s/nodeinfo/2.0", s.cfg.Domain),
+			},
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// handleNodeInfo serves /nodeinfo/2.0
+func (s *Server) handleNodeInfo(w http.ResponseWriter, r *http.Request) {
+	subscribersCount, err := s.rdb.SCard(r.Context(), "relay:subscribers").Result()
+	if err != nil {
+		slog.Error("Failed to fetch subscriber count from Redis for NodeInfo", "error", err)
+	}
+
+	resp := NodeInfoSchema{
+		Version: "2.0",
+		Software: NodeInfoSoftware{
+			Name:    "activitypub-relay-proxy",
+			Version: "0.1.0",
+		},
+		Protocols: []string{"activitypub"},
+		Services: NodeInfoServices{
+			Inbound:  []string{},
+			Outbound: []string{},
+		},
+		OpenRegistrations: false,
+		Usage: NodeInfoUsage{
+			Users: NodeInfoUsers{
+				Total:          1,
+				ActiveHalfyear: 1,
+				ActiveMonth:    1,
+			},
+			LocalPosts:    0,
+			LocalComments: 0,
+		},
+		Metadata: NodeInfoMetadata{
+			ActorUsername:    s.cfg.ActorUsername,
+			DestinationURL:   s.cfg.DestinationURL,
+			SubscribersCount: subscribersCount,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(resp)
+}

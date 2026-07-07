@@ -248,3 +248,155 @@ func TestHandleInbox_ValidationErrors(t *testing.T) {
 	}
 }
 
+func TestHandleIndex(t *testing.T) {
+	cfg := &config.Config{
+		Domain:         "relay.example.com",
+		ActorUsername:  "relay",
+		DestinationURL: "https://my-mastodon.example.com",
+		FilterKeywords: []string{"golang", "rust"},
+	}
+
+	mQueue := &testutil.MockQueueClient{}
+	mRedis := testutil.NewMockRedis()
+	mRedis.PresetSet("relay:subscribers", "https://sub1.example.com/inbox", "https://sub2.example.com/inbox")
+
+	s := &Server{
+		cfg:         cfg,
+		rdb:         mRedis,
+		asynqClient: mQueue,
+	}
+
+	r := chi.NewRouter()
+	r.Get("/", s.handleIndex)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "text/plain") {
+		t.Errorf("expected Content-Type to contain text/plain, got %s", contentType)
+	}
+
+	body := w.Body.String()
+	expectedSubstrings := []string{
+		"ActivityPub Relay Proxy",
+		"This service acts as an ActivityPub Relay Proxy for https://my-mastodon.example.com",
+		"Relay Actor URI:      https://relay.example.com/users/relay",
+		"Active Subscribers:   2",
+	}
+
+	for _, sub := range expectedSubstrings {
+		if !strings.Contains(body, sub) {
+			t.Errorf("expected body to contain %q, but it didn't", sub)
+		}
+	}
+}
+
+func TestHandleWellKnownNodeInfo(t *testing.T) {
+	cfg := &config.Config{
+		Domain: "relay.example.com",
+	}
+
+	s := &Server{
+		cfg: cfg,
+	}
+
+	r := chi.NewRouter()
+	r.Get("/.well-known/nodeinfo", s.handleWellKnownNodeInfo)
+
+	req := httptest.NewRequest("GET", "/.well-known/nodeinfo", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		t.Errorf("expected Content-Type to contain application/json, got %s", contentType)
+	}
+
+	var resp NodeInfoWellKnown
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+
+	if len(resp.Links) != 1 {
+		t.Fatalf("expected 1 link, got %d", len(resp.Links))
+	}
+
+	link := resp.Links[0]
+	if link.Rel != "http://nodeinfo.diaspora.eu/ns/schema/2.0" {
+		t.Errorf("expected rel to be http://nodeinfo.diaspora.eu/ns/schema/2.0, got %s", link.Rel)
+	}
+
+	expectedHref := "https://relay.example.com/nodeinfo/2.0"
+	if link.Href != expectedHref {
+		t.Errorf("expected href to be %s, got %s", expectedHref, link.Href)
+	}
+}
+
+func TestHandleNodeInfo(t *testing.T) {
+	cfg := &config.Config{
+		Domain:         "relay.example.com",
+		ActorUsername:  "relay",
+		DestinationURL: "https://my-mastodon.example.com",
+	}
+
+	mQueue := &testutil.MockQueueClient{}
+	mRedis := testutil.NewMockRedis()
+	mRedis.PresetSet("relay:subscribers", "https://sub1.example.com/inbox")
+
+	s := &Server{
+		cfg:         cfg,
+		rdb:         mRedis,
+		asynqClient: mQueue,
+	}
+
+	r := chi.NewRouter()
+	r.Get("/nodeinfo/2.0", s.handleNodeInfo)
+
+	req := httptest.NewRequest("GET", "/nodeinfo/2.0", nil)
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		t.Errorf("expected Content-Type to contain application/json, got %s", contentType)
+	}
+
+	var resp NodeInfoSchema
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+
+	if resp.Version != "2.0" {
+		t.Errorf("expected version 2.0, got %s", resp.Version)
+	}
+
+	if resp.Software.Name != "activitypub-relay-proxy" {
+		t.Errorf("expected software name activitypub-relay-proxy, got %s", resp.Software.Name)
+	}
+
+	if resp.Metadata.ActorUsername != "relay" {
+		t.Errorf("expected metadata actor_username to be relay, got %s", resp.Metadata.ActorUsername)
+	}
+
+	if resp.Metadata.SubscribersCount != 1 {
+		t.Errorf("expected metadata subscribers_count to be 1, got %d", resp.Metadata.SubscribersCount)
+	}
+}
+
