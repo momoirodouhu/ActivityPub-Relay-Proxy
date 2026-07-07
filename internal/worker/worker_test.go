@@ -120,6 +120,9 @@ func TestHandleFollow(t *testing.T) {
 				if req.URL.String() != actorURL {
 					t.Errorf("unexpected fetch URL: %s", req.URL)
 				}
+				if req.Header.Get("Signature") == "" {
+					t.Error("missing signature header in fetch request")
+				}
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Body:       io.NopCloser(strings.NewReader(string(profileBytes))),

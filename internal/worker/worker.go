@@ -201,6 +201,12 @@ func (w *Worker) fetchActorInbox(ctx context.Context, actorURL string) (string, 
 	}
 	req.Header.Set("Accept", "application/activity+json, application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"")
 	req.Header.Set("User-Agent", "ActivityPub-Relay-Proxy")
+	req.Header.Set("Host", req.URL.Host)
+
+	keyID := fmt.Sprintf("https://%s/users/%s#main-key", w.cfg.Domain, w.cfg.ActorUsername)
+	if err := relay.SignRequest(req, []byte{}, w.privateKey, keyID); err != nil {
+		return "", fmt.Errorf("failed to sign fetch request: %w", err)
+	}
 
 	resp, err := w.httpClient.Do(req)
 	if err != nil {
